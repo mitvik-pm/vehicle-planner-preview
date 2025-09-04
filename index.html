@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Planning Module</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Soothing Neutrals -->
+    <!-- Application Structure Plan: A two-view Single Page Application (SPA) structure. The first view is a master 'Dashboard' listing all plans. Clicking a plan navigates the user to a 'Plan Details' view, showing its specific summary, analytics, and associated vehicle-lanes. This task-oriented flow (overview -> detail) is intuitive and prevents information overload. All creation/editing actions are handled in modals to keep the user in context. This design was chosen for its clarity, scalability, and direct alignment with the user tasks described in the source mockups. -->
+    <!-- Visualization & Content Choices: 
+        - Plan List (Dashboard): Report Info -> List of plans -> Goal: Inform/Navigate -> Viz: Interactive HTML Table -> Interaction: Click row to navigate, Filter by status -> Justification: Standard, effective way to display lists. -> Library: Tailwind/JS.
+        - Plan Summary (Details): Report Info -> Key plan attributes -> Goal: Inform -> Viz: Styled key-value pairs -> Interaction: None -> Justification: Clear, scannable presentation of essential data. -> Library: HTML/Tailwind.
+        - Lane & Trip Lists (Details): Report Info -> List of lanes/trips -> Goal: Organize/Inform -> Viz: Interactive HTML Table -> Interaction: Filter/Search -> Justification: Handles detailed tabular data effectively. -> Library: Tailwind/JS.
+        - Plan Analytics (Details - Added Value): Report Info -> Implied need for trip summaries -> Goal: Compare/Analyze -> Viz: Donut/Bar/Line Charts -> Interaction: Hover tooltips -> Justification: Visualizations offer quick insights into plan composition and trends, which a simple table cannot. -> Library: Chart.js/Canvas.
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8F9FA;
+            color: #343A40;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        .modal-backdrop {
+            background-color: rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div id="app" class="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-800">Vehicle Planning Module</h1>
+            <p class="text-gray-500 mt-1">Manage and track vehicle assignments seamlessly.</p>
+        </header>
+
+        <main>
+            <section id="dashboard-view">
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                        <div>
+                            <h2 class="text-xl font-semibold text-gray-700">Plans Dashboard</h2>
+                            <p class="text-sm text-gray-500">Overview of all vehicle plans.</p>
+                        </div>
+                        <button onclick="openModal('create-plan-modal')" class="w-full sm:w-auto bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2">
+                            <span class="text-xl">+</span> Create New Plan
+                        </button>
+                    </div>
+                    
+                    <div class="flex flex-col md:flex-row gap-4 mb-4">
+                        <div class="flex-1">
+                            <label for="filter-status" class="block text-sm font-medium text-gray-600 mb-1">Filter by Status</label>
+                            <select id="filter-status" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option>All</option>
+                                <option>Scheduled</option>
+                                <option>Active</option>
+                                <option>Completed</option>
+                                <option>Cancelled</option>
+                            </select>
+                        </div>
+                        <div class="flex-1">
+                             <label for="filter-start-date" class="block text-sm font-medium text-gray-600 mb-1">Start Date</label>
+                             <input type="date" id="filter-start-date" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div class="flex-1">
+                             <label for="filter-end-date" class="block text-sm font-medium text-gray-600 mb-1">End Date</label>
+                             <input type="date" id="filter-end-date" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Plan ID</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Lanes</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Trips</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="plans-table-body" class="bg-white divide-y divide-gray-200">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+            
+            <section id="plan-details-view" class="hidden"></section>
+        </main>
+    </div>
+
+    <div id="modals-container">
+        <div id="create-plan-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+                <div class="p-6 border-b"><h3 class="text-xl font-semibold">Create New Plan</h3></div>
+                <div class="p-6 space-y-4">
+                    <div><label class="block text-sm font-medium mb-1">Start Date</label><input type="date" class="w-full p-2 border rounded-lg"></div>
+                    <div><label class="block text-sm font-medium mb-1">End Date</label><input type="date" class="w-full p-2 border rounded-lg"></div>
+                    <div><label class="block text-sm font-medium mb-1">Remarks</label><textarea class="w-full p-2 border rounded-lg" rows="3"></textarea></div>
+                </div>
+                <div class="p-4 bg-gray-50 flex justify-end gap-3">
+                    <button onclick="closeModal('create-plan-modal')" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                    <button class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700">Save Plan</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="edit-plan-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+                <div class="p-6 border-b"><h3 class="text-xl font-semibold">Edit Plan</h3></div>
+                <div id="edit-plan-modal-body" class="p-6 space-y-4"></div>
+                <div class="p-4 bg-gray-50 flex justify-end gap-3">
+                    <button onclick="closeModal('edit-plan-modal')" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                    <button class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700">Update Plan</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="add-lane-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
+                 <div class="p-6 border-b"><h3 class="text-xl font-semibold">Add Single Vehicle-Lane</h3></div>
+                <div class="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label class="block text-sm font-medium mb-1">Source</label><select class="w-full p-2 border rounded-lg"><option>MH-GURGAON</option><option>MH-MUMBAI</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Destination(s)</label><input type="text" placeholder="STORE-101, STORE-102" class="w-full p-2 border rounded-lg"></div>
+                        <div><label class="block text-sm font-medium mb-1">Vehicle Type</label><select class="w-full p-2 border rounded-lg"><option>32ft Container</option><option>24ft Truck</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Vendor</label><select class="w-full p-2 border rounded-lg"><option>Reliable Transports</option><option>Speedy Logistics</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Trip Contract Hours</label><select class="w-full p-2 border rounded-lg"><option>24hr_1trip</option><option>12hr</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Frequency</label><select class="w-full p-2 border rounded-lg"><option>Daily</option><option>Weekly</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Journey Type</label><select class="w-full p-2 border rounded-lg"><option>Return</option><option>One Way</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Billing Basis</label><select class="w-full p-2 border rounded-lg"><option>Planned</option><option>Adhoc</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Start Date</label><input type="date" class="w-full p-2 border rounded-lg"></div>
+                        <div><label class="block text-sm font-medium mb-1">End Date</label><input type="date" class="w-full p-2 border rounded-lg"></div>
+                        <div><label class="block text-sm font-medium mb-1">Vehicle Sequence</label><input type="number" value="1" class="w-full p-2 border rounded-lg"></div>
+                    </div>
+                </div>
+                <div class="p-4 bg-gray-50 flex justify-end gap-3">
+                    <button onclick="closeModal('add-lane-modal')" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                    <button class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700">Add Lane</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="add-trip-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
+                 <div class="p-6 border-b"><h3 class="text-xl font-semibold">Add Adhoc Trip</h3></div>
+                <div class="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label class="block text-sm font-medium mb-1">Trip Date</label><input type="date" class="w-full p-2 border rounded-lg"></div>
+                        <div><label class="block text-sm font-medium mb-1">Billing Basis</label><input type="text" value="Adhoc" disabled class="w-full p-2 border rounded-lg bg-gray-100"></div>
+                        <div><label class="block text-sm font-medium mb-1">Source</label><select class="w-full p-2 border rounded-lg"><option>MH-GURGAON</option><option>MH-MUMBAI</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Destination(s)</label><input type="text" placeholder="STORE-101" class="w-full p-2 border rounded-lg"></div>
+                        <div><label class="block text-sm font-medium mb-1">Vehicle Type</label><select class="w-full p-2 border rounded-lg"><option>32ft Container</option><option>24ft Truck</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Vendor</label><select class="w-full p-2 border rounded-lg"><option>Reliable Transports</option><option>Speedy Logistics</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Trip Contract Hours</label><select class="w-full p-2 border rounded-lg"><option>12hr</option><option>Inter</option></select></div>
+                        <div><label class="block text-sm font-medium mb-1">Journey Type</label><select class="w-full p-2 border rounded-lg"><option>One Way</option><option>Return</option></select></div>
+                    </div>
+                </div>
+                <div class="p-4 bg-gray-50 flex justify-end gap-3">
+                    <button onclick="closeModal('add-trip-modal')" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Cancel</button>
+                    <button class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700">Add Trip</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="upload-summary-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg"><div id="upload-summary-content"></div></div>
+        </div>
+    </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    const MOCK_PLANS = [
+        { id: 'PLAN-00123', startDate: '2025-10-01', endDate: '2025-10-31', status: 'Active', totalLanes: 3, totalTrips: 90, createdBy: 'planner_user@email.com', remarks: 'Q4 Peak Season Planning for North Region' },
+        { id: 'PLAN-00124', startDate: '2025-11-01', endDate: '2025-11-30', status: 'Scheduled', totalLanes: 1, totalTrips: 30, createdBy: 'planner_user@email.com', remarks: 'November lean month planning' },
+        { id: 'PLAN-00121', startDate: '2025-09-01', endDate: '2025-09-30', status: 'Completed', totalLanes: 52, totalTrips: 1510, createdBy: 'admin@email.com', remarks: 'September festive rush' },
+        { id: 'PLAN-00122', startDate: '2025-09-15', endDate: '2025-10-15', status: 'Cancelled', totalLanes: 0, totalTrips: 0, createdBy: 'planner_user@email.com', remarks: 'Duplicate plan, cancelled' },
+    ];
+
+    const MOCK_LANES = {
+        'PLAN-00123': [
+            { id: 'LANE-58901', source: 'MH-GURGAON', destinations: 'STORE-101, STORE-102', vehicleType: '32ft Container', vendor: 'Reliable Transports', frequency: 'Daily', laneDates: '2025-10-01 to 2025-10-31', status: 'Active', contract: '24hr_1trip', billing: 'Planned' },
+            { id: 'LANE-58902', source: 'MH-GURGAON', destinations: 'STORE-105', vehicleType: '24ft Truck', vendor: 'Speedy Logistics', frequency: 'Daily', laneDates: '2025-10-01 to 2025-10-31', status: 'Active', contract: '12hr', billing: 'Planned' },
+            { id: 'LANE-58903', source: 'MH-MUMBAI', destinations: 'STORE-201, STORE-202', vehicleType: '32ft Container', vendor: 'Reliable Transports', frequency: 'Daily', laneDates: '2025-10-01 to 2025-10-31', status: 'Active', contract: '24hr_2trip', billing: 'Planned' },
+        ],
+        'PLAN-00124': [
+             { id: 'LANE-60101', source: 'MH-CHENNAI', destinations: 'STORE-301', vehicleType: '24ft Truck', vendor: 'Southern Carriers', frequency: 'Daily', laneDates: '2025-11-01 to 2025-11-30', status: 'Scheduled', contract: '12hr', billing: 'Planned' },
+        ],
+        'PLAN-00121': [], 'PLAN-00122': [],
+    };
+    
+    const MOCK_TRIPS = {
+        'PLAN-00123': [
+            { id: 'TRIP-8001', laneId: 'LANE-58901', date: '2025-10-04', status: 'Completed', vehicle: 'HR55AB1234', source: 'MH-GURGAON', vendor: 'Reliable Transports', contract: '24hr_1trip', billing: 'Planned' },
+            { id: 'TRIP-8002', laneId: 'LANE-58902', date: '2025-10-04', status: 'Completed', vehicle: 'HR55AC5678', source: 'MH-GURGAON', vendor: 'Speedy Logistics', contract: '12hr', billing: 'Planned' },
+            { id: 'TRIP-8003', laneId: 'LANE-58903', date: '2025-10-04', status: 'Completed', vehicle: 'MH01XY9988', source: 'MH-MUMBAI', vendor: 'Reliable Transports', contract: '24hr_2trip', billing: 'Planned' },
+            { id: 'TRIP-8004', laneId: 'LANE-58901', date: '2025-10-05', status: 'In-Transit', vehicle: 'HR55AB1234', source: 'MH-GURGAON', vendor: 'Reliable Transports', contract: '24hr_1trip', billing: 'Planned' },
+            { id: 'TRIP-8005', laneId: 'LANE-58902', date: '2025-10-05', status: 'In-Transit', vehicle: 'HR55AC5678', source: 'MH-GURGAON', vendor: 'Speedy Logistics', contract: '12hr', billing: 'Planned' },
+            { id: 'TRIP-8006', laneId: 'LANE-58903', date: '2025-10-05', status: 'Scheduled', vehicle: 'TBD', source: 'MH-MUMBAI', vendor: 'Reliable Transports', contract: '24hr_2trip', billing: 'Planned' },
+            { id: 'TRIP-8007', laneId: 'LANE-58903', date: '2025-10-05', status: 'Scheduled', vehicle: 'TBD', source: 'MH-MUMBAI', vendor: 'Reliable Transports', contract: '24hr_2trip', billing: 'Planned' },
+            { id: 'TRIP-8008', laneId: 'ADHOC-001', date: '2025-10-05', status: 'Scheduled', vehicle: 'TBD', source: 'MH-GURGAON', vendor: 'Speedy Logistics', contract: '12hr', billing: 'Adhoc' },
+        ],
+        'PLAN-00124': [], 'PLAN-00121': [], 'PLAN-00122': [],
+    };
+
+    const state = { currentView: 'dashboard', selectedPlanId: null, charts: {} };
+    const dashboardView = document.getElementById('dashboard-view');
+    const planDetailsView = document.getElementById('plan-details-view');
+    const plansTableBody = document.getElementById('plans-table-body');
+    const planStatusColors = { Active: 'bg-green-100 text-green-800', Scheduled: 'bg-blue-100 text-blue-800', Completed: 'bg-gray-100 text-gray-800', Cancelled: 'bg-red-100 text-red-800' };
+    const tripStatusColors = { 'In-Transit': 'bg-yellow-100 text-yellow-800', Scheduled: 'bg-blue-100 text-blue-800', Completed: 'bg-gray-100 text-gray-800' };
+
+    function renderDashboard() {
+        plansTableBody.innerHTML = '';
+        MOCK_PLANS.forEach(plan => {
+            const isCompleted = plan.status === 'Completed' || plan.status === 'Cancelled';
+            const canCancel = plan.status === 'Scheduled';
+            const editDisabled = isCompleted ? 'opacity-50 cursor-not-allowed' : '';
+            const cancelDisabled = !canCancel ? 'opacity-50 cursor-not-allowed' : '';
+            const row = document.createElement('tr');
+            row.className = 'hover:bg-gray-50';
+            row.innerHTML = `
+                <td class="px-6 py-4 whitespace-nowrap"><a href="#" class="text-blue-600 font-semibold hover:underline" onclick="navigateToDetails('${plan.id}'); return false;">${plan.id}</a></td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${plan.startDate}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${plan.endDate}</td>
+                <td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${planStatusColors[plan.status] || ''}">${plan.status}</span></td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${plan.totalLanes}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${plan.totalTrips}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <button onclick="${!isCompleted ? `MapsToDetails('${plan.id}')` : ''}" class="text-gray-500 hover:text-gray-700 ${editDisabled}" title="Edit" ${isCompleted ? 'disabled' : ''}>&#9998;</button>
+                    <button class="text-gray-500 hover:text-gray-700 ml-2 ${cancelDisabled}" title="Cancel" ${!canCancel ? 'disabled' : ''}>&#10006;</button>
+                </td>`;
+            plansTableBody.appendChild(row);
+        });
+    }
+
+    function destroyCharts() {
+        Object.values(state.charts).forEach(chart => chart.destroy());
+        state.charts = {};
+    }
+
+    function renderPlanDetails(planId) {
+        destroyCharts();
+        const plan = MOCK_PLANS.find(p => p.id === planId);
+        if (!plan) return;
+
+        const lanes = MOCK_LANES[planId] || [];
+        const trips = MOCK_TRIPS[planId] || [];
+        const isActionable = plan.status === 'Active' || plan.status === 'Scheduled';
+        
+        let planActionButton = '';
+        if (plan.status === 'Active') {
+            planActionButton = `<button onclick="openEditModal('${planId}', 'active')" class="bg-yellow-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-yellow-600">Edit End Date</button>`;
+        } else if (plan.status === 'Scheduled') {
+            planActionButton = `<button onclick="openEditModal('${planId}', 'scheduled')" class="bg-yellow-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-yellow-600">Edit Plan</button>`;
+        }
+
+        planDetailsView.innerHTML = `
+            <div class="space-y-8">
+                <button onclick="navigateToDashboard()" class="text-blue-600 font-semibold hover:underline">&larr; Back to Dashboard</button>
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div><h2 class="text-2xl font-bold text-gray-800">${plan.id}</h2><span class="mt-1 px-3 py-1 inline-flex text-sm leading-5 font-semibold rounded-full ${planStatusColors[plan.status] || ''}">${plan.status}</span></div>
+                        ${planActionButton}
+                    </div>
+                    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div><strong class="block text-gray-500">Effective Dates:</strong> <span class="text-gray-800">${plan.startDate} to ${plan.endDate}</span></div>
+                        <div><strong class="block text-gray-500">Created By:</strong> <span class="text-gray-800">${plan.createdBy}</span></div>
+                        <div class="col-span-1 md:col-span-2"><strong class="block text-gray-500">Remarks:</strong> <span class="text-gray-800">${plan.remarks}</span></div>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Plan Analytics</h3>
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <div class="chart-container"><canvas id="billing-chart"></canvas></div>
+                        <div class="chart-container"><canvas id="source-chart"></canvas></div>
+                        <div class="chart-container"><canvas id="contract-chart"></canvas></div>
+                        <div class="chart-container lg:col-span-2"><canvas id="trip-volume-chart"></canvas></div>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                        <h3 class="text-xl font-semibold text-gray-700">Planned Vehicle-Lanes (${lanes.length})</h3>
+                        ${isActionable ? `<div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                            <button onclick="openModal('add-lane-modal')" class="w-full sm:w-auto bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><span class="text-xl">+</span> Add Lane</button>
+                            <button onclick="showUploadSummary('success')" class="w-full sm:w-auto bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"><span class="text-xl">⤒</span> Bulk Upload</button>
+                            <button class="w-full sm:w-auto bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"><span class="text-xl">❌</span> Bulk Cancel</button>
+                        </div>` : ''}
+                    </div>
+                    <div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lane ID</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Destination(s)</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">${lanes.map(lane => `<tr class="hover:bg-gray-50"><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">${lane.id}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${lane.source}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${lane.destinations}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${lane.vehicleType}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${lane.vendor}</td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${planStatusColors[lane.status] || ''}">${lane.status}</span></td><td class="px-6 py-4 whitespace-nowrap text-sm font-medium"><button class="text-gray-500 hover:text-gray-700" title="Cancel">&#10006;</button></td></tr>`).join('')}${lanes.length === 0 ? `<tr><td colspan="7" class="text-center py-10 text-gray-500">No vehicle-lanes found for this plan.</td></tr>` : ''}</tbody></table></div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                        <h3 class="text-xl font-semibold text-gray-700">Scheduled Trips (${trips.length})</h3>
+                        ${isActionable ? `<div class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto"><button onclick="openModal('add-trip-modal')" class="w-full sm:w-auto bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><span class="text-xl">+</span> Add Adhoc Trip</button><button class="w-full sm:w-auto bg-red-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-red-700 flex items-center justify-center gap-2"><span class="text-xl">❌</span> Bulk Cancel</button></div>` : ''}
+                    </div>
+                     <div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Master Trip ID</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lane ID</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trip Date</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle #</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vendor</th><th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th></tr></thead><tbody id="trips-table-body" class="bg-white divide-y divide-gray-200">${trips.map(trip => `<tr class="hover:bg-gray-50"><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">${trip.id}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${trip.laneId}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${trip.date}</td><td class="px-6 py-4 whitespace-nowrap"><span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${tripStatusColors[trip.status] || ''}">${trip.status}</span></td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${trip.vehicle}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${trip.vendor}</td><td class="px-6 py-4 whitespace-nowrap text-sm font-medium">${trip.status === 'Scheduled' ? `<button class="text-gray-500 hover:text-gray-700" title="Cancel">&#10006;</button>` : ''}</td></tr>`).join('')}${trips.length === 0 ? `<tr><td colspan="7" class="text-center py-10 text-gray-500">No scheduled trips found for this plan.</td></tr>` : ''}</tbody></table></div>
+                </div>
+            </div>`;
+        renderCharts(trips);
+    }
+    
+    function renderCharts(trips) {
+        if (trips.length === 0) return;
+        const createChart = (ctx, type, data, options) => new Chart(ctx, { type, data, options });
+        const chartOptions = (title, legendPos = 'bottom') => ({ responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: title, font: {size: 16} }, legend: { position: legendPos } } });
+        
+        const billingData = trips.reduce((acc, trip) => { acc[trip.billing] = (acc[trip.billing] || 0) + 1; return acc; }, {});
+        const sourceData = trips.reduce((acc, trip) => { acc[trip.source] = (acc[trip.source] || 0) + 1; return acc; }, {});
+        const contractData = trips.reduce((acc, trip) => { acc[trip.contract] = (acc[trip.contract] || 0) + 1; return acc; }, {});
+        const dailyTrips = Array(31).fill(0).map((_, i) => ({ day: i+1, count: Math.floor(Math.random() * 2) + Math.floor(trips.length / 15) }));
+
+        state.charts.billingChart = createChart(document.getElementById('billing-chart').getContext('2d'), 'doughnut', { labels: Object.keys(billingData), datasets: [{ data: Object.values(billingData), backgroundColor: ['#10B981', '#F59E0B'] }] }, chartOptions('Trips by Billing Basis'));
+        state.charts.sourceChart = createChart(document.getElementById('source-chart').getContext('2d'), 'bar', { labels: Object.keys(sourceData), datasets: [{ label: 'Trip Count', data: Object.values(sourceData), backgroundColor: '#6366F1'}] }, chartOptions('Trips by Source Location', 'top'));
+        state.charts.contractChart = createChart(document.getElementById('contract-chart').getContext('2d'), 'doughnut', { labels: Object.keys(contractData), datasets: [{ data: Object.values(contractData), backgroundColor: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'] }] }, chartOptions('Trips by Contract Type'));
+        state.charts.tripVolumeChart = createChart(document.getElementById('trip-volume-chart').getContext('2d'), 'line', { labels: dailyTrips.map(d => `Oct ${d.day}`), datasets: [{ label: 'Daily Trip Volume', data: dailyTrips.map(d=>d.count), borderColor: '#3B82F6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, tension: 0.4 }] }, { ...chartOptions('Daily Trip Volume (Simulated)', 'top'), scales: { y: { beginAtZero: true } } });
+    }
+
+    window.navigateToDashboard = () => {
+        state.currentView = 'dashboard';
+        state.selectedPlanId = null;
+        dashboardView.classList.remove('hidden');
+        planDetailsView.classList.add('hidden');
+        planDetailsView.innerHTML = '';
+        destroyCharts();
+    };
+
+    window.navigateToDetails = (planId) => {
+        state.currentView = 'details';
+        state.selectedPlanId = planId;
+        dashboardView.classList.add('hidden');
+        planDetailsView.classList.remove('hidden');
+        renderPlanDetails(planId);
+    };
+
+    window.openModal = (modalId) => document.getElementById(modalId).classList.remove('hidden');
+    window.closeModal = (modalId) => document.getElementById(modalId).classList.add('hidden');
+
+    window.openEditModal = (planId, type) => {
+        const plan = MOCK_PLANS.find(p => p.id === planId);
+        const modalBody = document.getElementById('edit-plan-modal-body');
+        let content = '';
+        if (type === 'scheduled') {
+            content = `<div><label class="block text-sm font-medium mb-1">Start Date</label><input type="date" value="${plan.startDate}" class="w-full p-2 border rounded-lg"></div><div><label class="block text-sm font-medium mb-1">End Date</label><input type="date" value="${plan.endDate}" class="w-full p-2 border rounded-lg"></div>`;
+        } else if (type === 'active') {
+            content = `<div><label class="block text-sm font-medium mb-1">End Date</label><input type="date" value="${plan.endDate}" class="w-full p-2 border rounded-lg"></div>`;
+        }
+        modalBody.innerHTML = content;
+        openModal('edit-plan-modal');
+    };
+
+    window.showUploadSummary = (type) => {
+        const contentEl = document.getElementById('upload-summary-content');
+        if (type === 'success') {
+            contentEl.innerHTML = `<div class="p-6 text-center"><div class="mx-auto bg-green-100 rounded-full h-12 w-12 flex items-center justify-center text-green-600 text-2xl font-bold">&#10003;</div><h3 class="text-xl font-semibold mt-4">Upload Successful!</h3></div><div class="p-6 bg-gray-50 border-t space-y-2 text-sm"><p><strong>Rows Processed:</strong> 50</p><p><strong>Planned Vehicle Lanes Created:</strong> 50</p><p><strong>Scheduled Trips Generated:</strong> 1,500</p></div><div class="p-4 bg-gray-100 flex justify-end"><button onclick="closeModal('upload-summary-modal')" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700">Close</button></div>`;
+        } else {
+            contentEl.innerHTML = `<div class="p-6 text-center"><div class="mx-auto bg-red-100 rounded-full h-12 w-12 flex items-center justify-center text-red-600 text-2xl font-bold">&times;</div><h3 class="text-xl font-semibold mt-4">Upload Failed</h3><p class="text-gray-500 text-sm">Please correct the errors and try again.</p></div><div class="px-6 pb-2"><div class="max-h-48 overflow-y-auto border rounded-lg"><table class="min-w-full text-sm"><thead class="bg-gray-50 sticky top-0"><tr class="text-left"><th class="p-2 font-medium">Row</th><th class="p-2 font-medium">Field</th><th class="p-2 font-medium">Error</th></tr></thead><tbody><tr class="border-t"><td class="p-2">5</td><td class="p-2">Start Date</td><td class="p-2">Date is before plan start date.</td></tr><tr class="border-t bg-gray-50"><td class="p-2">12</td><td class="p-2">Vendor</td><td class="p-2">Vendor not onboarded.</td></tr><tr class="border-t"><td class="p-2">23</td><td class="p-2">Vehicle Type</td><td class="p-2">Invalid vehicle type.</td></tr></tbody></table></div></div><div class="p-4 bg-gray-100 flex justify-end gap-3"><button class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300">Download Report</button><button onclick="closeModal('upload-summary-modal')" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700">Close</button></div>`;
+        }
+        openModal('upload-summary-modal');
+    };
+
+    renderDashboard();
+});
+</script>
+
+</body>
+</html>
+
