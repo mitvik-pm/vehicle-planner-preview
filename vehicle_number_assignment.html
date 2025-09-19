@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Dispatch Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.7/dayjs.min.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        .sidesheet {
+            transition: transform 0.3s ease-in-out;
+            transform: translateX(100%);
+            z-index: 50;
+        }
+        .sidesheet.open {
+            transform: translateX(0);
+        }
+        .modal { display: none; }
+        .modal.open { display: flex; }
+        .table-cell { padding: 12px 16px; white-space: nowrap; }
+        .table-header { padding: 12px 16px; white-space: nowrap; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .tag-vt-updated { background-color: #e0f2fe; color: #0c4a6e; }
+        .tag-dest-updated { background-color: #fef3c7; color: #92400e; }
+        .tag-adhoc { background-color: #d1fae5; color: #065f46; }
+        .filter-input {
+            width: 100%;
+            padding: 4px 8px;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        .action-menu a { display: flex; align-items: center; gap: 8px; }
+        .action-menu a .fa-fw { width: 1.25em; text-align: center; }
+        .paired-trip { border-left: 4px solid #8b5cf6; }
+        .adhoc-child td:first-child { 
+            padding-left: 2.5rem !important; 
+            position: relative; 
+        }
+        .adhoc-child td:first-child::before {
+            content: '';
+            position: absolute;
+            left: 1.25rem;
+            top: -14px;
+            width: 1rem;
+            height: 28px;
+            border-left: 2px dotted #9ca3af;
+            border-bottom: 2px dotted #9ca3af;
+            border-radius: 0 0 0 0.5rem;
+        }
+        .toast.hidden { transform: translateX(150%); }
+        .sidesheet-section {
+            padding-bottom: 1rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .sidesheet-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <!-- Main Application Container -->
+    <div id="app" class="p-4 sm:p-6 lg:p-8">
+        <!-- Views are managed by JS -->
+        <div id="listing-view">...</div>
+        <div id="details-view" class="hidden">...</div>
+    </div>
+
+    <!-- Modals & Sidesheets -->
+    <div id="modal-overlay" class="fixed inset-0 bg-black bg-opacity-50 hidden z-40"></div>
+    
+    <div id="toast" class="fixed top-5 right-5 bg-green-500 text-white py-2 px-4 rounded-lg shadow-lg transition-transform duration-300 hidden">
+        <p id="toast-message">Success!</p>
+    </div>
+
+    <!-- Bulk Assignment Modal (Listing Page) -->
+    <div id="bulk-assign-modal" class="modal fixed inset-0 z-50 items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
+            <div class="p-6 border-b"><h3 class="text-xl font-semibold text-gray-900">Bulk Vehicle Assignment</h3></div>
+            <div class="p-6 space-y-4">
+                <p class="text-sm text-gray-600">Select a date range to download the scheduled trips template. Fill in the vehicle numbers and upload the file to assign in bulk.</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label for="bulk-start-date" class="block text-sm font-medium">Plan Start Date (From)</label><input type="date" id="bulk-start-date" class="mt-1 block w-full border-gray-300 rounded-md"></div>
+                    <div><label for="bulk-end-date" class="block text-sm font-medium">Plan Start Date (To)</label><input type="date" id="bulk-end-date" class="mt-1 block w-full border-gray-300 rounded-md"></div>
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-gray-50 flex justify-between items-center rounded-b-lg">
+                <button type="button" class="btn-cancel bg-white border border-gray-300 px-4 py-2 text-sm font-semibold rounded-md shadow-sm hover:bg-gray-50">Cancel</button>
+                <div class="flex gap-3">
+                    <button class="bg-blue-600 text-white px-4 py-2 text-sm font-semibold rounded-md shadow-sm hover:bg-blue-700"><i class="fas fa-download mr-2"></i>Download Template</button>
+                    <button class="bg-green-600 text-white px-4 py-2 text-sm font-semibold rounded-md shadow-sm hover:bg-green-700"><i class="fas fa-upload mr-2"></i>Upload File</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generic Action Sidesheet -->
+    <div id="action-sidesheet" class="sidesheet fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col">
+        <header class="p-6 border-b flex justify-between items-center">
+            <h3 class="text-xl font-semibold text-gray-900" id="action-sidesheet-title">Action</h3>
+            <button class="close-sidesheet-btn text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button>
+        </header>
+        <form id="action-sidesheet-form" class="flex-grow p-6 space-y-4 overflow-y-auto"></form>
+        <footer class="p-6 bg-gray-50 flex justify-end gap-3 border-t">
+            <button type="button" class="close-sidesheet-btn bg-white border border-gray-300 px-4 py-2 text-sm font-semibold rounded-md shadow-sm hover:bg-gray-50">Cancel</button>
+            <button type="submit" form="action-sidesheet-form" class="bg-indigo-600 text-white px-4 py-2 text-sm font-semibold rounded-md shadow-sm hover:bg-indigo-700" id="action-sidesheet-confirm-btn">Confirm</button>
+        </footer>
+    </div>
+    
+    <!-- Audit Log Sidesheet -->
+    <div id="audit-log-sidesheet" class="sidesheet fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl">
+         <header class="p-6 border-b flex justify-between items-center"><h3 class="text-xl font-semibold text-gray-900">Audit Log for Trip <span id="audit-trip-id"></span></h3><button class="close-sidesheet-btn text-gray-500 hover:text-gray-800 text-2xl font-bold">&times;</button></header>
+         <div id="audit-log-content" class="p-6 overflow-y-auto"></div>
+    </div>
+
+    <script type="module">
+        // --- DATA SIMULATION ---
+        let dispatchPlans = []; let trips = [];
+        const allDestinations = Array.from({ length: 30 }, (_, i) => `DS${String(i + 1).padStart(2, '0')}`);
+        const vehicleTypes = ["20ft Truck", "24ft Truck", "32ft Truck", "40ft Truck"];
+        const vendors = ["Blue Dart", "Delhivery", "Ekart", "Gati"];
+        function generateMockData() {
+            dispatchPlans = [
+                { id: 'DP1001', location: 'Bengaluru_MH', startDate: '2025-09-18T08:00:00', endDate: '2025-09-18T20:00:00', totalTrips: 8, assignedTrips: 3, dockedInTrips: 1, status: 'Active' },
+                { id: 'DP1002', location: 'Bengaluru_MH', startDate: '2025-09-19T08:00:00', endDate: '2025-09-19T20:00:00', totalTrips: 1, assignedTrips: 0, dockedInTrips: 0, status: 'Scheduled' },
+                { id: 'DP1003', location: 'Chennai_MH', startDate: '2025-09-19T10:00:00', endDate: '2025-09-19T22:00:00', totalTrips: 0, assignedTrips: 0, dockedInTrips: 0, status: 'Scheduled' },
+                { id: 'DP1004', location: 'Bengaluru_MH', startDate: '2025-09-17T08:00:00', endDate: '2025-09-17T20:00:00', totalTrips: 0, assignedTrips: 0, dockedInTrips: 0, status: 'Completed' }
+            ];
+            trips = [
+                { id: 'MT101A', dispatchPlanId: 'DP1001', tripType: 'Planned', linkedTo: null, status: 'In-Progress', vehicleType: '24ft Truck', vendor: 'Blue Dart', destinations: 'DS01, DS05', vehicleAssignment: 'Assigned', vehicleNumber: 'KA01AB1234', contractHours: 12, billingBasis: 'KM', journeyType: '24hr_2trip', dispatchBatch: 1, pairedMasterTrip: 'MT101B', updatedAt: '2025-09-18T10:05:00', updatedBy: 'user@example.com', tags: [] },
+                { id: 'MT101B', dispatchPlanId: 'DP1001', tripType: 'Planned', linkedTo: null, status: 'Scheduled', vehicleType: '24ft Truck', vendor: 'Blue Dart', destinations: 'DS01, DS05', vehicleAssignment: 'Pending', vehicleNumber: null, contractHours: 12, billingBasis: 'KM', journeyType: '24hr_2trip', dispatchBatch: 2, pairedMasterTrip: 'MT101A', updatedAt: '2025-09-18T09:00:00', updatedBy: 'system', tags: [] },
+                { id: 'MT102', dispatchPlanId: 'DP1001', tripType: 'Planned', linkedTo: null, status: 'Completed', vehicleType: '32ft Truck', vendor: 'Delhivery', destinations: 'DS03, DS08, DS11', vehicleAssignment: 'Assigned', vehicleNumber: 'TN02CD5678', contractHours: 8, billingBasis: 'Trip', journeyType: 'One-Way', dispatchBatch: 1, pairedMasterTrip: null, updatedAt: '2025-09-18T11:30:00', updatedBy: 'user@example.com', tags: [] },
+                { id: 'MT103', dispatchPlanId: 'DP1001', tripType: 'Planned', linkedTo: null, status: 'Scheduled', vehicleType: '20ft Truck', vendor: 'Ekart', destinations: 'DS02', vehicleAssignment: 'Pending', vehicleNumber: null, contractHours: 4, billingBasis: 'Trip', journeyType: 'One-Way', dispatchBatch: 2, pairedMasterTrip: null, updatedAt: '2025-09-18T09:00:00', updatedBy: 'system', tags: [] },
+                { id: 'MT107-ADHOC', dispatchPlanId: 'DP1001', tripType: 'Adhoc', linkedTo: 'MT103', status: 'Scheduled', vehicleType: '20ft Truck', vendor: 'Gati', destinations: 'DS02', vehicleAssignment: 'Pending', vehicleNumber: null, contractHours: 4, billingBasis: 'Trip', journeyType: 'One-Way', dispatchBatch: 2, pairedMasterTrip: null, updatedAt: '2025-09-18T10:00:00', updatedBy: 'user@example.com', tags: ['Adhoc Created']},
+                { id: 'MT104', dispatchPlanId: 'DP1001', tripType: 'Planned', linkedTo: null, status: 'Scheduled', vehicleType: '40ft Truck', vendor: 'Blue Dart', destinations: 'DS21, DS22', vehicleAssignment: 'Pending', vehicleNumber: null, contractHours: 8, billingBasis: 'KM', journeyType: 'One-Way', dispatchBatch: 1, pairedMasterTrip: null, updatedAt: '2025-09-18T14:15:22', updatedBy: 'another@example.com', tags: ['Vehicle Type Updated', 'Destination Updated'] },
+                { id: 'MT105', dispatchPlanId: 'DP1001', tripType: 'Planned', linkedTo: null, status: 'Cancelled', vehicleType: '24ft Truck', vendor: 'Ekart', destinations: 'DS15', vehicleAssignment: 'Assigned', vehicleNumber: 'KA05EF9101', contractHours: 6, billingBasis: 'Trip', journeyType: 'One-Way', dispatchBatch: 1, pairedMasterTrip: null, updatedAt: '2025-09-18T09:45:00', updatedBy: 'user@example.com', tags: [], cancellationReason: 'No Load' },
+                { id: 'MT106', dispatchPlanId: 'DP1001', tripType: 'Planned', linkedTo: null, status: 'Expired', vehicleType: '20ft Truck', vendor: 'Delhivery', destinations: 'DS18', vehicleAssignment: 'Pending', vehicleNumber: null, contractHours: 4, billingBasis: 'Trip', journeyType: 'One-Way', dispatchBatch: 2, pairedMasterTrip: null, updatedAt: '2025-09-18T20:00:00', updatedBy: 'system', tags: [] },
+                { id: 'MT201', dispatchPlanId: 'DP1002', tripType: 'Planned', linkedTo: null, status: 'Scheduled', vehicleType: '32ft Truck', vendor: 'Delhivery', destinations: 'DS04, DS09', vehicleAssignment: 'Pending', vehicleNumber: null, contractHours: 8, billingBasis: 'KM', journeyType: 'One-Way', dispatchBatch: 1, pairedMasterTrip: null, updatedAt: '2025-09-19T07:00:00', updatedBy: 'system', tags: [] },
+            ];
+        }
+
+        // --- GLOBAL STATE & UTILITIES ---
+        let currentView = 'listing', currentPlanId = null, sortConfig = { key: 'startDate', direction: 'ascending' };
+        const formatDate = (d) => dayjs(d).format('DD MMM YYYY, hh:mm A');
+        const showToast = (message, isError = false) => {
+            const toast = document.getElementById('toast');
+            toast.classList.remove('hidden');
+            toast.className = `fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-lg transition-transform duration-300 ${isError ? 'bg-red-500' : 'bg-green-500'}`;
+            setTimeout(() => { toast.classList.add('hidden'); }, 3000);
+        };
+        const getStatusBadge = (s) => `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-${{scheduled:"blue-100 text-blue-800",'in-progress':"yellow-100 text-yellow-800",completed:"green-100 text-green-800",cancelled:"red-100 text-red-800",expired:"gray-100 text-gray-800"}[s.toLowerCase()] || ''}">${s}</span>`;
+        const renderTags = (t) => t && t.length ? t.map(tag => `<span class="tag ${tag.includes('Vehicle') ? 'tag-vt-updated' : tag.includes('Destination') ? 'tag-dest-updated' : 'tag-adhoc'}">${tag}</span>`).join(' ') : '—';
+        const overlay = document.getElementById('modal-overlay');
+        const openSidesheet = (sheetId) => { document.getElementById(sheetId).classList.add('open'); overlay.classList.remove('hidden'); };
+        const closeSidesheets = () => { document.querySelectorAll('.sidesheet.open').forEach(s => s.classList.remove('open')); overlay.classList.add('hidden'); };
+        const openModal = (modalId) => { document.getElementById(modalId).classList.add('open'); overlay.classList.remove('hidden'); };
+        const closeModal = () => { document.querySelectorAll('.modal.open').forEach(m => m.classList.remove('open')); overlay.classList.add('hidden'); };
+
+        // --- RENDER FUNCTIONS ---
+        function renderViews() {
+            document.getElementById('listing-view').innerHTML = `
+                <header class="mb-6"><h1 class="text-3xl font-bold text-gray-900">Dispatch Plans</h1><p class="text-gray-600 mt-1">Manage and assign vehicles to scheduled, active, and completed dispatch plans.</p></header>
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                    <div class="flex border-b border-gray-200">
+                        <button class="tab-btn active-tab px-4 py-2 text-sm font-semibold text-indigo-600 border-b-2 border-indigo-600" data-tab="scheduled">Scheduled / Active</button>
+                        <button class="tab-btn px-4 py-2 text-sm font-semibold text-gray-500 hover:text-indigo-600" data-tab="completed">Completed</button>
+                    </div>
+                    <div class="flex gap-3">
+                        <input type="text" id="plan-filter" placeholder="Filter plans..." class="w-full md:w-64 px-3 py-2 border rounded-md text-sm">
+                        <button id="bulk-assign-global-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-sm hover:bg-indigo-700 text-sm font-semibold whitespace-nowrap">Bulk Vehicle Assignment</button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-600">
+                        <thead class="bg-gray-50 text-xs text-gray-700 uppercase"><tr>
+                            <th class="table-header sortable" data-sort="id">Plan ID &#x2195;</th> <th class="table-header sortable" data-sort="location">MH Location &#x2195;</th>
+                            <th class="table-header sortable active-sort" data-sort="startDate">Plan Start & End &#x2195;</th> <th class="table-header sortable" data-sort="totalTrips">Total Trips &#x2195;</th>
+                            <th class="table-header">Vehicle Assigned</th> <th class="table-header">Vehicle Docked-In</th>
+                        </tr></thead>
+                        <tbody id="plans-table-body"></tbody>
+                    </table>
+                    <div id="no-plans" class="hidden text-center p-8 text-gray-500">No dispatch plans found.</div>
+                </div>`;
+            document.getElementById('details-view').innerHTML = `
+                <header class="mb-6">
+                    <button id="back-to-plans-btn" class="flex items-center text-sm font-semibold text-indigo-600 hover:text-indigo-800 mb-4"><i class="fas fa-arrow-left mr-2"></i>Back to Plans</button>
+                    <div><h1 class="text-3xl font-bold text-gray-900">Dispatch Plan Details</h1><p class="text-gray-600 mt-1" id="plan-id-header"></p></div>
+                </header>
+                <div id="plan-summary-card" class="grid grid-cols-2 md:grid-cols-4 gap-6 text-sm mb-6 bg-white p-6 rounded-lg shadow"></div>
+                <div class="flex justify-between items-center mb-4 gap-4">
+                    <div class="flex gap-2 flex-wrap items-center">
+                        <p class="text-sm font-medium">Filter by Tag:</p>
+                        <select id="tag-filter" class="px-3 py-2 border rounded-md text-sm"><option value="">All</option><option>Vehicle Type Updated</option><option>Destination Updated</option><option>Adhoc Created</option></select>
+                    </div>
+                    <div class="flex gap-3">
+                        <button id="bulk-assign-details-btn" class="bg-white border text-gray-700 px-4 py-2 rounded-md shadow-sm hover:bg-gray-50 text-sm font-semibold">Bulk Assignment</button>
+                        <button id="unplanned-lane-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow-sm hover:bg-indigo-700 text-sm font-semibold">Create Unplanned Trip</button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-600">
+                        <thead class="bg-gray-50 text-xs text-gray-700 uppercase">
+                            <tr>
+                                ${['Trip ID','Trip Type','Status','Vehicle No.','Vehicle Type','Vendor','Destinations','Paired Trip','Batch','Contract Hrs','Billing Basis','Tags','Actions'].map(h => `<th class="table-header">${h}</th>`).join('')}
+                            </tr>
+                            <tr class="bg-gray-100">
+                                ${['id','tripType','status','vehicleNumber','vehicleType','vendor','destinations','pairedMasterTrip','dispatchBatch','contractHours','billingBasis'].map(c => `<td class="p-1"><input type="text" class="filter-input" data-filter-col="${c}" placeholder="Filter..."></td>`).join('')}
+                                <td colspan="2"></td>
+                            </tr>
+                        </thead>
+                        <tbody id="trips-table-body" class="divide-y divide-gray-200"></tbody>
+                    </table>
+                    <div id="no-trips" class="hidden text-center p-8 text-gray-500">No trips found.</div>
+                </div>`;
+            renderDispatchPlans();
+        }
+
+        function renderDispatchPlans() {
+            const tableBody = document.getElementById('plans-table-body');
+            const activeTab = document.querySelector('.tab-btn.active-tab').dataset.tab;
+            const filterText = document.getElementById('plan-filter').value.toLowerCase();
+            let filtered = dispatchPlans.filter(p => (((activeTab === 'scheduled' && (p.status === 'Scheduled' || p.status === 'Active')) || (activeTab === 'completed' && p.status === 'Completed')) && (!filterText || Object.values(p).some(v => String(v).toLowerCase().includes(filterText)))));
+            filtered.sort((a, b) => (a[sortConfig.key] > b[sortConfig.key] ? 1 : -1) * (sortConfig.direction === 'ascending' ? 1 : -1));
+            document.getElementById('no-plans').classList.toggle('hidden', filtered.length > 0);
+            tableBody.innerHTML = filtered.map(p => `<tr class="bg-white hover:bg-gray-50"><td class="table-cell"><a href="#" class="font-medium text-indigo-600 view-details" data-plan-id="${p.id}">${p.id}</a></td><td class="table-cell">${p.location}</td><td class="table-cell"><div>${formatDate(p.startDate)}</div><div class="text-gray-500">${formatDate(p.endDate)}</div></td><td class="table-cell">${p.totalTrips}</td><td class="table-cell">${p.assignedTrips}/${p.totalTrips}</td><td class="table-cell">${p.dockedInTrips}/${p.totalTrips}</td></tr>`).join('');
+        }
+        
+        function renderTripDetails() {
+            const plan = dispatchPlans.find(p => p.id === currentPlanId); if (!plan) return;
+            document.getElementById('plan-id-header').textContent = `Plan ID: ${plan.id}`;
+            document.getElementById('plan-summary-card').innerHTML = [
+                {icon:'fa-location-dot', label:'MH Location', value:plan.location}, {icon:'fa-clock', label:'Plan Time', value:`${formatDate(plan.startDate)}`},
+                {icon:'fa-truck-fast', label:'Total Trips', value:plan.totalTrips}, {icon:'fa-check-double', label:'Vehicles Assigned', value:`${plan.assignedTrips}/${plan.totalTrips}`}
+            ].map(i => `<div class="flex items-start gap-4"><i class="fas ${i.icon} text-indigo-600 text-xl mt-1"></i><div><dt class="font-semibold text-gray-900">${i.label}</dt><dd class="text-gray-600">${i.value}</dd></div></div>`).join('');
+            
+            const tagFilter = document.getElementById('tag-filter').value;
+            const columnFilters = Array.from(document.querySelectorAll('.filter-input')).reduce((acc, i) => ({...acc, [i.dataset.filterCol]: i.value.toLowerCase()}), {});
+            let filtered = trips.filter(t => t.dispatchPlanId === currentPlanId && (!tagFilter || t.tags.includes(tagFilter)) && Object.entries(columnFilters).every(([col, val]) => !val || String(t[col]).toLowerCase().includes(val)));
+            filtered.sort((a, b) => {
+                const getSortKey = t => `${t.linkedTo ? trips.find(p=>p.id===t.linkedTo)?.dispatchBatch : (t.pairedMasterTrip && trips.find(p=>p.id===t.pairedMasterTrip)?.dispatchBatch < t.dispatchBatch ? trips.find(p=>p.id===t.pairedMasterTrip)?.dispatchBatch : t.dispatchBatch)}-${t.linkedTo || t.pairedMasterTrip || t.id}-${t.linkedTo ? 2:1}`;
+                return getSortKey(a).localeCompare(getSortKey(b));
+            });
+            
+            document.getElementById('no-trips').classList.toggle('hidden', filtered.length > 0);
+            document.getElementById('trips-table-body').innerHTML = filtered.map(t => {
+                const isActionable = t.status === 'Scheduled';
+                let rowClass = 'bg-white hover:bg-gray-50';
+                if (t.pairedMasterTrip) rowClass += ' paired-trip';
+                if (t.linkedTo) rowClass += ' adhoc-child';
+                
+                return `<tr class="${rowClass}" data-trip-id="${t.id}">
+                    <td class="table-cell font-medium">${t.id}</td>
+                    <td class="table-cell">${t.tripType}${t.linkedTo ? `<i class="fas fa-link text-gray-500 ml-2" title="Linked to ${t.linkedTo}"></i>` : ''} ${t.pairedMasterTrip ? `<i class="fas fa-people-arrows text-purple-500 ml-2" title="Paired with ${t.pairedMasterTrip}"></i>`:''}</td>
+                    <td class="table-cell">${getStatusBadge(t.status)}</td>
+                    <td class="table-cell">${t.vehicleNumber || '—'}</td><td class="table-cell">${t.vehicleType}</td><td class="table-cell">${t.vendor}</td>
+                    <td class="table-cell">${t.destinations}</td><td class="table-cell">${t.pairedMasterTrip || '—'}</td><td class="table-cell">${t.dispatchBatch}</td>
+                    <td class="table-cell">${t.contractHours}</td><td class="table-cell">${t.billingBasis}</td><td class="table-cell">${renderTags(t.tags)}</td>
+                    <td class="table-cell text-center relative"><div class="inline-block relative"><button class="trip-actions-btn p-1 rounded-full hover:bg-gray-200"><i class="fas fa-ellipsis-v"></i></button>
+                        <div class="action-menu hidden absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-20 border">
+                            ${[{action:'add-update-vehicle',icon:'fa-truck',label:'Add/Update Vehicle'},{action:'update-vehicle-type',icon:'fa-truck-ramp-box',label:'Update Vehicle Type'},{action:'add-destination',icon:'fa-map-location-dot',label:'Add Destination'},{action:'create-adhoc',icon:'fa-plus-circle',label:'Create Adhoc Trip'},{action:'cancel-trip',icon:'fa-ban',label:'Cancel Trip'}].map(a => `<a href="#" class="${!isActionable ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-100'} block px-4 py-2 text-sm" data-action="${a.action}"><i class="fa-fw fas ${a.icon}"></i> ${a.label}</a>`).join('')}
+                            <div class="border-t my-1"></div><a href="#" class="text-gray-700 hover:bg-gray-100 block px-4 py-2 text-sm" data-action="audit-log"><i class="fa-fw fas fa-history"></i> View Audit Log</a>
+                        </div></div></td></tr>`;
+            }).join('');
+        }
+
+        // --- EVENT BINDING ---
+        function bindEvents() {
+            document.body.addEventListener('click', e => {
+                if (e.target.closest('.tab-btn')) {
+                    document.querySelector('.tab-btn.active-tab').classList.remove('active-tab', 'text-indigo-600', 'border-b-2');
+                    e.target.closest('.tab-btn').classList.add('active-tab', 'text-indigo-600', 'border-b-2');
+                    renderDispatchPlans();
+                } else if (e.target.closest('.sortable')) {
+                    const key = e.target.closest('.sortable').dataset.sort;
+                    sortConfig.direction = (sortConfig.key === key && sortConfig.direction === 'ascending') ? 'descending' : 'ascending';
+                    sortConfig.key = key;
+                    renderDispatchPlans();
+                } else if (e.target.closest('.view-details')) {
+                    e.preventDefault();
+                    currentPlanId = e.target.closest('.view-details').dataset.planId;
+                    switchView('details');
+                } else if (e.target.id === 'back-to-plans-btn') switchView('listing');
+                else if (e.target.id === 'bulk-assign-global-btn') openModal('bulk-assign-modal');
+                else if (e.target.closest('.btn-cancel')) closeModal();
+                else if (e.target.closest('.close-sidesheet-btn') || e.target.id === 'modal-overlay') { closeSidesheets(); closeModal(); }
+                else if (e.target.closest('.trip-actions-btn')) {
+                    const menu = e.target.closest('.trip-actions-btn').nextElementSibling;
+                    document.querySelectorAll('.action-menu').forEach(m => { if (m !== menu) m.classList.add('hidden'); });
+                    menu.classList.toggle('hidden');
+                } else if (e.target.closest('a[data-action]')) {
+                    e.preventDefault();
+                    if(e.target.closest('a[data-action]').classList.contains('cursor-not-allowed')) return showToast('Action unavailable for this trip status.', true);
+                    handleTripAction(e.target.closest('a[data-action]').dataset.action, e.target.closest('tr')?.dataset.tripId);
+                } else if (e.target.id === 'bulk-assign-details-btn' || e.target.id === 'unplanned-lane-btn') {
+                    handleTripAction(e.target.id.startsWith('bulk') ? 'bulk-assign' : 'unplanned-lane', currentPlanId);
+                } else if (e.target.id === 'unassign-vehicle-btn') {
+                    const form = e.target.closest('form');
+                    const tripId = form.querySelector('[name="tripId"]').value;
+                    const trip = trips.find(t => t.id === tripId);
+                    if (trip) {
+                        trip.vehicleNumber = null;
+                        trip.vehicleAssignment = 'Pending';
+                        trip.updatedAt = new Date().toISOString();
+                        trip.updatedBy = 'user@example.com';
+                        showToast(`Vehicle unassigned from ${tripId}.`);
+                        closeSidesheets();
+                        renderTripDetails();
+                    }
+                }
+                else if (!e.target.closest('.trip-actions-btn')) {
+                    document.querySelectorAll('.action-menu').forEach(m => m.classList.add('hidden'));
+                }
+            });
+            document.body.addEventListener('input', e => {
+                if(e.target.closest('#plan-filter')) renderDispatchPlans();
+                else if(e.target.closest('.filter-input, #tag-filter')) renderTripDetails();
+                else if(e.target.id === 'update-reason') {
+                    const reason = e.target.value;
+                    document.getElementById('swap-fields').classList.toggle('hidden', reason !== 'swap');
+                    document.getElementById('resize-fields').classList.toggle('hidden', !['bigger', 'smaller'].includes(reason));
+                }
+                else if(e.target.id === 'adhoc-reason') {
+                     document.getElementById('adhoc-sub-reason-zepto').classList.toggle('hidden', e.target.value !== 'zepto');
+                     document.getElementById('adhoc-sub-reason-vendor').classList.toggle('hidden', e.target.value !== 'vendor');
+                }
+            });
+        }
+        
+        function switchView(viewName) {
+            document.getElementById('listing-view').classList.toggle('hidden', viewName !== 'listing');
+            document.getElementById('details-view').classList.toggle('hidden', viewName !== 'details');
+            if(viewName === 'details') renderTripDetails();
+        }
+
+        // --- Action Handlers ---
+        function getTripContextHTML(trip) {
+            return `<div class="sidesheet-section">
+                <h4 class="text-sm font-semibold text-gray-500 uppercase mb-3">Trip Information</h4>
+                <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                    <div class="font-semibold text-gray-800">Trip ID</div><div>${trip.id}</div>
+                    <div class="font-semibold text-gray-800">Vehicle Type</div><div>${trip.vehicleType}</div>
+                    <div class="font-semibold text-gray-800">Destinations</div><div>${trip.destinations}</div>
+                </div>
+            </div>`;
+        }
+
+        function handleTripAction(action, entityId) { // Can be tripId or planId
+            const form = document.getElementById('action-sidesheet-form');
+            const title = document.getElementById('action-sidesheet-title');
+            const confirmBtn = document.getElementById('action-sidesheet-confirm-btn');
+            const trip = trips.find(t => t.id === entityId);
+            
+            // Reset button states
+            confirmBtn.style.display = 'inline-flex';
+            confirmBtn.textContent = 'Confirm';
+
+            let formHTML = trip ? getTripContextHTML(trip) : ''; 
+            title.textContent = 'Action'; 
+            
+            switch (action) {
+                case 'add-update-vehicle':
+                    title.textContent = `${trip.vehicleNumber ? 'Update' : 'Add'} Vehicle`;
+                    formHTML += `
+                        <div class="sidesheet-section">
+                            <input type="hidden" name="tripId" value="${entityId}">
+                            <div>
+                                <label for="vehicleNumber" class="block text-sm font-medium mb-1">Vehicle Number</label>
+                                <input type="text" id="vehicleNumber" name="vehicleNumber" value="${trip.vehicleNumber || ''}" class="w-full border-gray-300 rounded-md uppercase" required pattern="^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$" title="e.g., KA01AB1234">
+                            </div>
+                            <div id="mismatch-reason-container" class="hidden mt-4">
+                                <label class="block text-sm font-medium mb-1">Paired Trip Mismatch Reason</label>
+                                <select name="mismatchReason" class="w-full border-gray-300 rounded-md">
+                                    <option>Vehicle Breakdown</option>
+                                    <option>Vehicle Reporting Delay</option>
+                                </select>
+                            </div>
+                            ${trip.vehicleNumber ? `<button type="button" id="unassign-vehicle-btn" class="text-sm text-red-600 hover:underline mt-2">Unassign Vehicle</button>` : ''}
+                        </div>`;
+                    form.onsubmit = e => {
+                        e.preventDefault();
+                        const formData = new FormData(form);
+                        const vehicleNumber = formData.get('vehicleNumber').toUpperCase().trim();
+                        trip.vehicleNumber = vehicleNumber;
+                        trip.vehicleAssignment = 'Assigned';
+                        trip.updatedAt = new Date().toISOString();
+                        trip.updatedBy = 'user@example.com';
+                        showToast(`Vehicle for ${entityId} updated.`);
+                        closeSidesheets();
+                        renderTripDetails();
+                    };
+                    break;
+                case 'update-vehicle-type':
+                    title.textContent = `Update Vehicle Type`;
+                    const swappableTrips = trips.filter(t => t.dispatchPlanId === trip.dispatchPlanId && t.status === 'Scheduled' && t.id !== entityId);
+                    const currentTypeIndex = vehicleTypes.indexOf(trip.vehicleType);
+                    formHTML += `
+                        <div class="sidesheet-section">
+                            <label for="update-reason" class="block text-sm font-medium mb-1">Reason for Update</label>
+                            <select id="update-reason" name="updateReason" class="w-full border-gray-300 rounded-md" required>
+                                <option value="">Select a reason...</option>
+                                <option value="swap">Swap Vehicle Type</option>
+                                <option value="bigger">Vendor Sent Bigger Vehicle</option>
+                                <option value="smaller">Vendor Sent Smaller Vehicle</option>
+                            </select>
+                        </div>
+                        <div id="swap-fields" class="hidden sidesheet-section">
+                            <label for="swap-trip-id" class="block text-sm font-medium mb-1">Swap with Trip</label>
+                            <select id="swap-trip-id" name="swapTripId" class="w-full border-gray-300 rounded-md">
+                                ${swappableTrips.length > 0 ? swappableTrips.map(st => `<option value="${st.id}">${st.id} - ${st.destinations} (${st.vehicleType})</option>`).join('') : '<option disabled>No swappable trips</option>'}
+                            </select>
+                        </div>
+                        <div id="resize-fields" class="hidden sidesheet-section space-y-4">
+                            <div>
+                                <label for="new-vehicle-type" class="block text-sm font-medium mb-1">New Vehicle Type</label>
+                                <select id="new-vehicle-type" name="newVehicleType" class="w-full border-gray-300 rounded-md"></select>
+                            </div>
+                            <div>
+                                <label for="resize-vehicle-number" class="block text-sm font-medium mb-1">Vehicle Number (Mandatory)</label>
+                                <input type="text" name="resizeVehicleNumber" required class="w-full border-gray-300 rounded-md uppercase">
+                            </div>
+                            <div>
+                                <label for="resize-remarks" class="block text-sm font-medium mb-1">Remarks (Optional)</label>
+                                <textarea name="resizeRemarks" rows="2" class="w-full border-gray-300 rounded-md"></textarea>
+                            </div>
+                        </div>`;
+                    form.onsubmit = e => { e.preventDefault(); /* ... Logic to update data ... */ showToast('Vehicle Type Updated'); closeSidesheets(); renderTripDetails(); };
+                    // Post-render logic to populate dynamic dropdowns
+                    setTimeout(() => {
+                        document.getElementById('update-reason').addEventListener('change', e => {
+                            const reason = e.target.value;
+                            const newVehicleTypeSelect = document.getElementById('new-vehicle-type');
+                            if (reason === 'bigger') {
+                                newVehicleTypeSelect.innerHTML = vehicleTypes.slice(currentTypeIndex + 1).map(v => `<option>${v}</option>`).join('') || '<option disabled>No bigger types</option>';
+                            } else if (reason === 'smaller') {
+                                newVehicleTypeSelect.innerHTML = vehicleTypes.slice(0, currentTypeIndex).map(v => `<option>${v}</option>`).join('') || '<option disabled>No smaller types</option>';
+                            }
+                        });
+                    }, 0);
+                    break;
+                case 'add-destination':
+                    title.textContent = 'Add Additional Destination';
+                    const currentDests = trip.destinations.split(', ');
+                    const availableDests = allDestinations.filter(d => !currentDests.includes(d));
+                    formHTML += `<div class="sidesheet-section">
+                        <label class="block text-sm font-medium mb-1">Select additional store(s)</label>
+                        <div class="border rounded-md p-2 mt-1">
+                            <input type="search" id="dest-search" placeholder="Search destinations..." class="w-full border-b mb-2 p-1">
+                            <div id="dest-list" class="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                                ${availableDests.map(d => `<div><input name="destinations" type="checkbox" id="dest-${d}" value="${d}" class="mr-2"><label for="dest-${d}">${d}</label></div>`).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+                    form.onsubmit = e => { e.preventDefault(); 
+                        const formData = new FormData(form);
+                        const newDests = formData.getAll('destinations');
+                        if (newDests.length) {
+                            trip.destinations += `, ${newDests.join(', ')}`;
+                            if (!trip.tags.includes('Destination Updated')) trip.tags.push('Destination Updated');
+                        }
+                        showToast('Destinations Added'); closeSidesheets(); renderTripDetails(); 
+                    };
+                    break;
+                case 'create-adhoc':
+                    title.textContent = 'Create Adhoc Trip';
+                    formHTML += `
+                        <div class="sidesheet-section">
+                            <label for="adhoc-reason" class="block text-sm font-medium mb-1">Reason for Adhoc Trip</label>
+                            <select id="adhoc-reason" name="adhocReason" class="w-full border-gray-300 rounded-md" required>
+                                <option value="">Select a reason...</option><option value="zepto">Zepto Issue</option><option value="vendor">Vendor Issue (No Show)</option>
+                            </select>
+                        </div>
+                        <div id="adhoc-sub-reason-zepto" class="hidden sidesheet-section">
+                            <label for="zepto-sub-reason" class="block text-sm font-medium mb-1">Sub-Reason</label>
+                            <select name="zeptoSubReason" class="w-full border-gray-300 rounded-md"><option>Increased Load</option><option>Last Mile Issue</option></select>
+                        </div>
+                        <div id="adhoc-sub-reason-vendor" class="hidden sidesheet-section">
+                             <p class="text-sm text-yellow-700 bg-yellow-50 p-3 rounded-md"><i class="fas fa-exclamation-triangle mr-2"></i>Creating an adhoc trip for this reason will cancel the original planned trip <strong>(${trip.id})</strong>.</p>
+                        </div>
+                        <div class="sidesheet-section space-y-4">
+                            <h4 class="text-sm font-semibold text-gray-500 uppercase">New Trip Details</h4>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div><label class="block text-sm font-medium">Vehicle Type</label><select name="vehicleType" required class="mt-1 w-full border-gray-300 rounded-md">${vehicleTypes.map(v => `<option>${v}</option>`).join('')}</select></div>
+                                <div><label class="block text-sm font-medium">Vendor</label><select name="vendor" required class="mt-1 w-full border-gray-300 rounded-md">${vendors.map(v => `<option>${v}</option>`).join('')}</select></div>
+                            </div>
+                             <div><label class="block text-sm font-medium">Remarks (Optional)</label><textarea name="remarks" rows="2" class="mt-1 w-full border-gray-300 rounded-md"></textarea></div>
+                        </div>`;
+                    form.onsubmit = e => { e.preventDefault(); /* ... Logic to create new trip ... */ showToast('Adhoc Trip Created'); closeSidesheets(); renderTripDetails(); };
+                    break;
+                case 'cancel-trip':
+                    title.textContent = `Cancel Trip`;
+                     formHTML += `<div class="sidesheet-section">
+                        <p class="text-sm mb-4">Are you sure you want to cancel trip <strong>${trip.id}</strong>? This action cannot be undone.</p>
+                        <label for="cancel-reason" class="block text-sm font-medium mb-1">Reason for Cancellation</label>
+                        <select id="cancel-reason" name="cancelReason" required class="w-full border-gray-300 rounded-md">
+                            <option>No Load</option><option>Vehicle Unavailability</option><option>Darkstore Disruption</option>
+                        </select>
+                     </div>`;
+                    form.onsubmit = e => { e.preventDefault(); trip.status = 'Cancelled'; showToast(`Trip ${entityId} cancelled.`); closeSidesheets(); renderTripDetails(); };
+                    break;
+                case 'bulk-assign':
+                    title.textContent = 'Bulk Vehicle Assignment';
+                    confirmBtn.style.display = 'none'; // Hide the footer confirm button
+                    
+                    formHTML = `
+                        <div class="sidesheet-section">
+                            <p class="text-sm text-gray-600 mb-4">
+                                To assign vehicles in bulk for plan <strong>${entityId}</strong>, please follow the steps below.
+                            </p>
+                            <ol class="list-decimal list-inside text-sm space-y-3 text-gray-700">
+                                <li>Download the Excel template which contains all scheduled trips for this plan.</li>
+                                <li>Fill in the vehicle numbers for each trip in the downloaded file.</li>
+                                <li>Upload the completed file to finalize the bulk assignment.</li>
+                            </ol>
+                        </div>
+                        <div class="sidesheet-section space-y-3">
+                             <button type="button" class="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 text-sm font-semibold rounded-md shadow-sm hover:bg-blue-700">
+                                <i class="fas fa-download fa-fw"></i>
+                                Download Trips Template
+                            </button>
+                            <input type="file" id="bulk-upload-input" class="hidden" accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel">
+                            <label for="bulk-upload-input" class="w-full flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-2.5 text-sm font-semibold rounded-md shadow-sm hover:bg-green-700 cursor-pointer">
+                                 <i class="fas fa-upload fa-fw"></i>
+                                Upload Completed File
+                            </label>
+                        </div>`;
+                    // No onsubmit needed as actions are button clicks. Prevent default submission.
+                    form.onsubmit = e => e.preventDefault();
+                    break;
+                case 'unplanned-lane':
+                    title.textContent = 'Create Unplanned Lane Trip';
+                    formHTML = `
+                        <div class="sidesheet-section">
+                            <label for="unplanned-reason" class="block text-sm font-medium mb-1">Reason for Creation</label>
+                            <select id="unplanned-reason" name="unplannedReason" required class="w-full border-gray-300 rounded-md">
+                                <option>Additional Load</option>
+                                <option>New Route Requirement</option>
+                                <option>Other</option>
+                            </select>
+                        </div>
+                        <div class="sidesheet-section">
+                            <label class="block text-sm font-medium mb-1">Destinations (Multi-select)</label>
+                            <div class="border rounded-md p-2 mt-1">
+                                <input type="search" id="dest-search" placeholder="Search destinations..." class="w-full border-b mb-2 p-1">
+                                <div id="dest-list" class="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                                    ${allDestinations.map(d => `<div><input name="destinations" type="checkbox" id="dest-unplanned-${d}" value="${d}" class="mr-2"><label for="dest-unplanned-${d}">${d}</label></div>`).join('')}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="sidesheet-section space-y-4">
+                             <h4 class="text-sm font-semibold text-gray-500 uppercase">New Trip Details</h4>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div><label class="block text-sm font-medium">Vehicle Type</label><select name="vehicleType" required class="mt-1 w-full border-gray-300 rounded-md">${vehicleTypes.map(v => `<option>${v}</option>`).join('')}</select></div>
+                                <div><label class="block text-sm font-medium">Vendor</label><select name="vendor" required class="mt-1 w-full border-gray-300 rounded-md">${vendors.map(v => `<option>${v}</option>`).join('')}</select></div>
+                                <div><label class="block text-sm font-medium">Journey Type</label><select name="journeyType" required class="mt-1 w-full border-gray-300 rounded-md"><option>One-Way</option><option>Round Trip</option></select></div>
+                                <div><label class="block text-sm font-medium">Dispatch Batch</label><select name="dispatchBatch" required class="mt-1 w-full border-gray-300 rounded-md"><option>1</option><option>2</option></select></div>
+                            </div>
+                        </div>
+                        `;
+                    form.onsubmit = e => {
+                        e.preventDefault();
+                        const formData = new FormData(form);
+                        const newTrip = {
+                            id: `MT${Math.floor(1000 + Math.random() * 9000)}-UNP`,
+                            dispatchPlanId: currentPlanId,
+                            tripType: 'Adhoc',
+                            linkedTo: null,
+                            status: 'Scheduled',
+                            vehicleType: formData.get('vehicleType'),
+                            vendor: formData.get('vendor'),
+                            destinations: formData.getAll('destinations').join(', ') || 'N/A',
+                            vehicleAssignment: 'Pending',
+                            vehicleNumber: null,
+                            contractHours: 8, // Default
+                            billingBasis: 'Trip', // Default
+                            journeyType: formData.get('journeyType'),
+                            dispatchBatch: parseInt(formData.get('dispatchBatch'), 10),
+                            pairedMasterTrip: null,
+                            updatedAt: new Date().toISOString(),
+                            updatedBy: 'user@example.com',
+                            tags: ['Adhoc Created']
+                        };
+
+                        if (!newTrip.destinations || newTrip.destinations === 'N/A') {
+                            showToast('Please select at least one destination.', true);
+                            return;
+                        }
+
+                        trips.push(newTrip);
+                        const plan = dispatchPlans.find(p => p.id === currentPlanId);
+                        if (plan) plan.totalTrips++;
+
+                        showToast('Unplanned Lane Trip Created.');
+                        closeSidesheets();
+                        renderTripDetails();
+                    };
+                    break;
+                case 'audit-log': openAuditLog(entityId); return;
+                default: formHTML += `<p>Form for ${action} is not implemented yet.</p>`; break;
+            }
+            form.innerHTML = formHTML;
+            openSidesheet('action-sidesheet');
+            if (action === 'add-destination' || action === 'unplanned-lane') { // Add search listener
+                const searchInput = document.getElementById('dest-search');
+                if (searchInput) {
+                    searchInput.addEventListener('input', e => {
+                        const query = e.target.value.toLowerCase();
+                        document.querySelectorAll('#dest-list label').forEach(l => {
+                            l.parentElement.style.display = l.textContent.toLowerCase().includes(query) ? '' : 'none';
+                        });
+                    });
+                }
+            }
+        }
+        
+        function openAuditLog(tripId) {
+            document.getElementById('audit-trip-id').textContent = tripId;
+            document.getElementById('audit-log-content').innerHTML = `<ol class="relative border-l border-gray-200">${[{ time: '2025-09-18T14:15:22', user: 'user@example.com', action: 'Added destination DS22.' }, { time: '2025-09-18T14:15:01', user: 'user@example.com', action: 'Updated Vehicle Type from 32ft Truck to 40ft Truck.' }, { time: '2025-09-18T09:00:00', user: 'system', action: 'Trip created.' }].map(log => `<li class="mb-6 ml-4"><div class="absolute w-3 h-3 bg-gray-200 rounded-full mt-1.5 -left-1.5 border-white"></div><time class="mb-1 text-sm text-gray-500">${formatDate(log.time)}</time><p class="font-semibold text-gray-900">${log.action}</p><p class="text-sm text-gray-500">by ${log.user}</p></li>`).join('')}</ol>`;
+            openSidesheet('audit-log-sidesheet');
+        }
+
+        // --- INITIALIZATION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            generateMockData();
+            renderViews();
+            bindEvents();
+        });
+
+    </script>
+</body>
+</html>
+
+
+
